@@ -96,15 +96,10 @@ async def menu_garasi(message: types.Message):
             await message.answer("Garasi Anda masih kosong. 🏍️\nKetik pengisian BBM atau klik 'Tambah Kendaraan' di Web.")
             return
             
-        teks = "🏍️ **GARASI SAYA** 🚗
-
-"
+        teks = "🏍️ **GARASI SAYA** 🚗\n\n"
         for v in vehicles:
-            teks += f"▪️ **{v.name.upper()}** ({v.type})
-"
-            teks += f"   Plat: {v.license_plate or '-'}
-
-"
+            teks += f"▪️ **{v.name.upper()}** ({v.type})\n"
+            teks += f"   Plat: {v.license_plate or '-'}\n\n"
         await message.answer(teks, parse_mode="Markdown")
     finally:
         db.close()
@@ -122,20 +117,12 @@ async def menu_status_oli(message: types.Message):
         vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == last_oli.vehicle_id).first()
         v_name = vehicle.name if vehicle else "Kendaraan"
         
-        teks = "🛢️ **STATUS OLI TERAKHIR**
-
-"
-        teks += f"🏍️ Kendaraan: {v_name.capitalize()}
-"
-        teks += f"📅 Tanggal: {last_oli.date}
-"
-        teks += f"📍 Odometer: {last_oli.odometer:,} KM
-"
-        teks += f"📝 Keterangan: {last_oli.description.capitalize()}
-"
-        teks += f"💰 Biaya: Rp {last_oli.cost:,}
-
-"
+        teks = "🛢️ **STATUS OLI TERAKHIR**\n\n"
+        teks += f"🏍️ Kendaraan: {v_name.capitalize()}\n"
+        teks += f"📅 Tanggal: {last_oli.date}\n"
+        teks += f"📍 Odometer: {last_oli.odometer:,} KM\n"
+        teks += f"📝 Keterangan: {last_oli.description.capitalize()}\n"
+        teks += f"💰 Biaya: Rp {last_oli.cost:,}\n\n"
         teks += "*Catat terus pengeluaran Anda agar prediksi ganti oli berikutnya lebih akurat!*"
         
         await message.answer(teks, parse_mode="Markdown")
@@ -151,19 +138,13 @@ async def menu_riwayat_bbm(message: types.Message):
             await message.answer("Belum ada riwayat pengisian BBM. ⛽")
             return
             
-        teks = "📊 **5 RIWAYAT BBM TERAKHIR**
-
-"
+        teks = "📊 **5 RIWAYAT BBM TERAKHIR**\n\n"
         for log in logs:
             vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == log.vehicle_id).first()
             v_name = vehicle.name if vehicle else "?"
-            teks += f"📅 {log.date} | 🏍️ {v_name.capitalize()}
-"
-            teks += f"⛽ {log.volume_liters}L {log.fuel_type.capitalize()} (Rp{log.cost:,})
-"
-            teks += f"📍 KM {log.odometer:,}
-
-"
+            teks += f"📅 {log.date} | 🏍️ {v_name.capitalize()}\n"
+            teks += f"⛽ {log.volume_liters}L {log.fuel_type.capitalize()} (Rp{log.cost:,})\n"
+            teks += f"📍 KM {log.odometer:,}\n\n"
             
         teks += "*(Cek Dasbor Web untuk melihat riwayat selengkapnya!)*"
         await message.answer(teks, parse_mode="Markdown")
@@ -190,15 +171,10 @@ async def menu_laporan(message: types.Message):
         
         total = fuel_cost + maint_cost
         
-        teks = f"📈 **LAPORAN BULAN INI** ({current_month}/{current_year})
-
-"
-        teks += f"⛽ Total BBM: Rp {fuel_cost:,}
-"
-        teks += f"🛠️ Total Servis/Lainnya: Rp {maint_cost:,}
-"
-        teks += "〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️
-"
+        teks = f"📈 **LAPORAN BULAN INI** ({current_month}/{current_year})\n\n"
+        teks += f"⛽ Total BBM: Rp {fuel_cost:,}\n"
+        teks += f"🛠️ Total Servis/Lainnya: Rp {maint_cost:,}\n"
+        teks += "〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️\n"
         teks += f"💰 **TOTAL PENGELUARAN: Rp {total:,}**"
         
         await message.answer(teks, parse_mode="Markdown")
@@ -304,13 +280,7 @@ async def handle_message(message: types.Message):
     finally:
         db.close()
         
-    await message.answer(f"✅ Data berhasil dicatat & disinkronkan ke Dasbor Web! 🌐
-
-Kategori: {category.capitalize()}
-Kendaraan: {vehicle.capitalize()}
-Biaya: Rp{cost:,}
-
-(Cek Grafik Dasbor Anda!)")
+    await message.answer(f"✅ Data berhasil dicatat & disinkronkan ke Dasbor Web! 🌐\n\nKategori: {category.capitalize()}\nKendaraan: {vehicle.capitalize()}\nBiaya: Rp{cost:,}\n\n(Cek Grafik Dasbor Anda!)")
 
 
 from bot.scheduler import setup_scheduler
