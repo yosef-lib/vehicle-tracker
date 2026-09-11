@@ -1,7 +1,7 @@
 import os
 import json
 import httpx
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
@@ -69,13 +69,49 @@ async def send_welcome(message: types.Message):
         reply_markup=menu_keyboard
     )
 
+# --- HANDLER TOMBOL MENU ---
+
+@dp.message(F.text == "⛽ Catat BBM")
+async def menu_catat_bbm(message: types.Message):
+    await message.answer("Silakan ketikkan data pengisian BBM Anda.\n\nContoh: *'Isi Vario Pertamax 35rb di KM 24500'*", parse_mode="Markdown")
+
+@dp.message(F.text == "🛠️ Catat Servis/Sparepart")
+async def menu_catat_servis(message: types.Message):
+    await message.answer("Silakan ketikkan data servis Anda.\n\nContoh: *'Ganti kampas rem nmax 150rb di bengkel ahass'*", parse_mode="Markdown")
+
+@dp.message(F.text == "🏍️ Garasi Saya")
+async def menu_garasi(message: types.Message):
+    await message.answer("Fitur Garasi sedang sinkronisasi dengan Database Dasbor Web Anda... 🔄")
+
+@dp.message(F.text == "🛢️ Status Oli")
+async def menu_status_oli(message: types.Message):
+    await message.answer("Fitur Status Oli sedang menghitung rata-rata pemakaian KM harian Anda... 🧮")
+
+@dp.message(F.text == "📊 Riwayat BBM")
+async def menu_riwayat_bbm(message: types.Message):
+    await message.answer("Anda bisa melihat riwayat BBM secara lengkap dan mengunduh Excel-nya melalui Dasbor Web! 🌐")
+
+@dp.message(F.text == "📈 Laporan Bulanan")
+async def menu_laporan(message: types.Message):
+    await message.answer("Merekap pengeluaran bulan ini... (Segera hadir di V1.1) 📆")
+
+@dp.message(F.text == "📉 Grafik Statistik")
+async def menu_grafik(message: types.Message):
+    await message.answer("Silakan buka Dasbor Web Anda untuk melihat grafik Interaktif Chart.js! 📊")
+
+@dp.message(F.text == "ℹ️ Bantuan")
+async def menu_bantuan(message: types.Message):
+    await message.answer("Ketikkan saja apa yang Anda keluarkan dengan bahasa natural. AI akan mengurus sisanya! 🤖")
+
+# --- HANDLER TEKS BEBAS (AI) ---
+
 @dp.message()
 async def handle_message(message: types.Message):
     await message.answer("Memproses data dengan AI... 🤖")
     
     parsed_data = await parse_text_with_ai(message.text)
     if not parsed_data:
-        await message.answer("Maaf, format tidak dipahami atau AI sedang offline.")
+        await message.answer("Maaf, format tidak dipahami atau AI sedang offline. Pastikan Ollama menyala di VPS Anda.")
         return
 
     category = parsed_data.get('category')
