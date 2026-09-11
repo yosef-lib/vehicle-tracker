@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, Form
+from fastapi.responses import RedirectResponse
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -51,7 +52,24 @@ async def read_root(request: Request, db: Session = Depends(get_db), username: s
         "total_cost": total_cost
     })
 
-@app.get("/vehicles", response_class=HTMLResponse)
+
+
+@app.post("/vehicles/add")
+async def add_vehicle(
+    request: Request,
+    name: str = Form(...),
+    type: str = Form(...),
+    license_plate: str = Form(""),
+    db: Session = Depends(get_db),
+    username: str = Depends(get_current_user)
+):
+    new_v = models.Vehicle(name=name.lower(), type=type, license_plate=license_plate)
+    db.add(new_v)
+    db.commit()
+    return RedirectResponse(url="/vehicles", status_code=303)
+
+@app.get("/vehicles"
+, response_class=HTMLResponse)
 async def vehicles_page(request: Request, db: Session = Depends(get_db), username: str = Depends(get_current_user)):
     vehicles = db.query(models.Vehicle).all()
     return templates.TemplateResponse(request=request, name="vehicles.html", context={

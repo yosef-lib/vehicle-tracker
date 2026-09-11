@@ -1,4 +1,42 @@
-{% extends "base.html" %}
+import re
+
+# 1. ADD ENDPOINT TO MAIN.PY
+with open("main.py", "r", encoding="utf-8") as f:
+    main_code = f.read()
+
+new_endpoint = """
+from fastapi import Form
+from fastapi.responses import RedirectResponse
+
+@app.post("/vehicles/add")
+async def add_vehicle(
+    request: Request,
+    name: str = Form(...),
+    type: str = Form(...),
+    license_plate: str = Form(""),
+    db: Session = Depends(get_db),
+    username: str = Depends(get_current_user)
+):
+    new_v = models.Vehicle(name=name.lower(), type=type, license_plate=license_plate)
+    db.add(new_v)
+    db.commit()
+    return RedirectResponse(url="/vehicles", status_code=303)
+
+@app.get("/vehicles"
+"""
+
+if "/vehicles/add" not in main_code:
+    main_code = main_code.replace("from fastapi import FastAPI, Request, Depends", "from fastapi import FastAPI, Request, Depends, Form\nfrom fastapi.responses import RedirectResponse")
+    main_code = main_code.replace("@app.get(\"/vehicles\"", new_endpoint.replace("from fastapi import Form\nfrom fastapi.responses import RedirectResponse\n", ""))
+
+with open("main.py", "w", encoding="utf-8") as f:
+    f.write(main_code)
+
+# 2. ADD MODAL TO VEHICLES.HTML
+with open("templates/vehicles.html", "r", encoding="utf-8") as f:
+    html_code = f.read()
+
+new_html = """{% extends "base.html" %}
 {% block content %}
 <div x-data="{ show: false, isModalOpen: false }" x-init="setTimeout(() => show = true, 100)">
     
@@ -85,3 +123,7 @@
     </div>
 </div>
 {% endblock %}
+"""
+
+with open("templates/vehicles.html", "w", encoding="utf-8") as f:
+    f.write(new_html)
