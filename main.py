@@ -1,5 +1,23 @@
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse, FileResponse
+
+import secrets
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+
+security = HTTPBasic()
+
+def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(credentials.username, "admin")
+    correct_password = secrets.compare_digest(credentials.password, "rahasia123")
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -19,7 +37,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request, db: Session = Depends(get_db)):
+async def read_root(request: Request, db: Session = Depends(get_db), username: str = Depends(get_current_user)):
     # Data ringkasan (Mock/Sederhana)
     total_cost = 0
     recent_logs = db.query(models.FuelLog).order_by(models.FuelLog.date.desc()).limit(5).all()

@@ -1,4 +1,137 @@
-{% extends "base.html" %}
+import os
+import re
+
+# 1. UPDATE MAIN.PY UNTUK MENAMBAHKAN LOGIN (BASIC AUTH)
+with open("main.py", "r", encoding="utf-8") as f:
+    main_code = f.read()
+
+auth_imports = """
+import secrets
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+
+security = HTTPBasic()
+
+def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(credentials.username, "admin")
+    correct_password = secrets.compare_digest(credentials.password, "rahasia123")
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+"""
+
+# Insert auth functions after imports
+if "HTTPBasic" not in main_code:
+    main_code = main_code.replace("from fastapi.responses import HTMLResponse, FileResponse", "from fastapi.responses import HTMLResponse, FileResponse\n" + auth_imports)
+
+# Inject dependency into all routes
+routes = [
+    ('async def read_root(request: Request, db: Session = Depends(get_db)):', 'async def read_root(request: Request, db: Session = Depends(get_db), username: str = Depends(get_current_user)):'),
+    ('async def vehicles_page(request: Request):', 'async def vehicles_page(request: Request, username: str = Depends(get_current_user)):'),
+    ('async def fuel_page(request: Request):', 'async def fuel_page(request: Request, username: str = Depends(get_current_user)):'),
+    ('async def maintenance_page(request: Request):', 'async def maintenance_page(request: Request, username: str = Depends(get_current_user)):'),
+    ('async def tax_page(request: Request):', 'async def tax_page(request: Request, username: str = Depends(get_current_user)):'),
+    ('async def export_data(db: Session = Depends(get_db)):', 'async def export_data(db: Session = Depends(get_db), username: str = Depends(get_current_user)):')
+]
+
+for old, new in routes:
+    main_code = main_code.replace(old, new)
+
+with open("main.py", "w", encoding="utf-8") as f:
+    f.write(main_code)
+
+
+# 2. UPDATE BASE.HTML MENJADI UI MODERN (SIDEBAR DASHBOARD)
+base_html = """<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Tracker Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden text-gray-800">
+
+    <!-- Sidebar -->
+    <aside class="w-64 bg-slate-900 text-white flex flex-col hidden md:flex">
+        <div class="h-16 flex items-center justify-center border-b border-slate-800">
+            <h1 class="text-xl font-bold text-blue-400"><i class="fa-solid fa-motorcycle mr-2"></i>Garage Analytics</h1>
+        </div>
+        <nav class="flex-1 px-4 py-6 space-y-2">
+            <a href="/" class="flex items-center gap-3 px-4 py-3 rounded-lg bg-blue-600 text-white shadow-md hover:bg-blue-500 transition">
+                <i class="fa-solid fa-chart-pie"></i> Dashboard
+            </a>
+            <a href="/vehicles" class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-800 transition">
+                <i class="fa-solid fa-car"></i> Data Kendaraan
+            </a>
+            <a href="/fuel" class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-800 transition">
+                <i class="fa-solid fa-gas-pump"></i> Riwayat BBM
+            </a>
+            <a href="/maintenance" class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-800 transition">
+                <i class="fa-solid fa-wrench"></i> Servis & Oli
+            </a>
+            <a href="/tax" class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-800 transition">
+                <i class="fa-solid fa-file-invoice-dollar"></i> Pajak
+            </a>
+        </nav>
+        <div class="p-4 border-t border-slate-800">
+            <a href="/export" class="flex items-center justify-center gap-2 w-full py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium transition shadow-lg">
+                <i class="fa-solid fa-file-excel"></i> Export Excel
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex flex-col overflow-y-auto">
+        <!-- Topbar -->
+        <header class="h-16 bg-white shadow-sm flex items-center justify-between px-6 z-10">
+            <div class="flex items-center gap-4 md:hidden">
+                <button class="text-gray-500 hover:text-gray-700 focus:outline-none">
+                    <i class="fa-solid fa-bars text-xl"></i>
+                </button>
+                <h1 class="text-xl font-bold text-blue-600">Garage Analytics</h1>
+            </div>
+            <div class="hidden md:flex items-center">
+                <h2 class="text-xl font-semibold text-gray-800">{{ title }}</h2>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold border border-blue-200">
+                        A
+                    </div>
+                    <span class="text-sm font-medium text-gray-700">Admin</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Page Content -->
+        <main class="flex-1 p-6">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+</body>
+</html>
+"""
+
+with open("templates/base.html", "w", encoding="utf-8") as f:
+    f.write(base_html)
+
+# 3. UPDATE INDEX.HTML MENJADI LEBIH MODERN
+index_html = """{% extends "base.html" %}
 
 {% block content %}
 <!-- Metric Cards -->
@@ -153,3 +286,7 @@
     });
 </script>
 {% endblock %}
+"""
+
+with open("templates/index.html", "w", encoding="utf-8") as f:
+    f.write(index_html)
