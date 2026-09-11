@@ -96,8 +96,13 @@ async def handle_message(message: types.Message):
     # TODO: Simpan ke database SQLite
     await message.answer(f"✅ Data berhasil dicatat!\n\nKategori: {category.capitalize()}\nKendaraan: {vehicle.capitalize()}\nBiaya: Rp{cost:,}\n\n(Ketik 'Revisi' jika ada kesalahan)")
 
+from bot.scheduler import setup_scheduler
+
 async def start_bot():
     print("Bot Telegram berjalan...")
+    # Jalankan Scheduler (Alarm Pagi & Prediksi)
+    setup_scheduler(bot)
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

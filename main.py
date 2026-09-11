@@ -1,22 +1,57 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Depends
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from app.database import engine, Base
+from sqlalchemy.orm import Session
+import pandas as pd
+import os
+
+from app.database import engine, Base, get_db
 from app import models
 
-# Create database tables
+# Buat tabel database
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Vehicle Tracker API")
 
-# Mount static files and templates
+# Mount folder statis dan template HTML
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "title": "Dashboard"})
+async def read_root(request: Request, db: Session = Depends(get_db)):
+    # Data ringkasan (Mock/Sederhana)
+    total_cost = 0
+    recent_logs = db.query(models.FuelLog).order_by(models.FuelLog.date.desc()).limit(5).all()
+    
+    return templates.TemplateResponse("index.html", {
+        "request": request, 
+        "title": "Dashboard Overview",
+        "recent_logs": recent_logs,
+        "total_cost": total_cost
+    })
+
+@app.get("/export")
+async def export_excel(db: Session = Depends(get_db)):
+    """Mengexport semua data log ke dalam file Excel"""
+    # Ambil data dari database menggunakan Pandas
+    fuel_logs = pd.read_sql(db.query(models.FuelLog).statement, db.bind)
+    maint_logs = pd.read_sql(db.query(models.MaintenanceLog).statement, db.bind)
+    
+    file_path = "Laporan_Kendaraan.xlsx"
+    
+    # Tulis ke dalam file Excel dengan beberapa sheet
+    with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+        fuel_logs.to_excel(writer, sheet_name='Log_BBM', index=False)
+        maint_logs.to_excel(writer, sheet_name='Log_Servis_Oli', index=False)
+        
+    return FileResponse(path=file_path, filename="Laporan_Kendaraan.xlsx", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+# Endpoint CRUD Halaman lainnya (Kendaraan, Servis, Pajak)
+@app.get("/vehicles", response_class=HTMLResponse)
+async def vehicles_page(request: Request, db: Session = Depends(get_db)):
+    vehicles = db.query(models.Vehicle).all()
+    return templates.TemplateResponse("vehicles.html", {"request": request, "title": "Kendaraan", "vehicles": vehicles})
 
 if __name__ == "__main__":
     import uvicorn
