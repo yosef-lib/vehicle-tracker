@@ -93,8 +93,7 @@ async def menu_garasi(message: types.Message):
     try:
         vehicles = db.query(models.Vehicle).all()
         if not vehicles:
-            await message.answer("Garasi Anda masih kosong. 🏍️
-Ketik pengisian BBM atau klik 'Tambah Kendaraan' di Web.")
+            await message.answer("Garasi Anda masih kosong. 🏍️\nKetik pengisian BBM atau klik 'Tambah Kendaraan' di Web.")
             return
             
         teks = "🏍️ **GARASI SAYA** 🚗
@@ -208,17 +207,11 @@ async def menu_laporan(message: types.Message):
 
 @dp.message(F.text == "📉 Grafik Statistik")
 async def menu_grafik(message: types.Message):
-    await message.answer("Untuk melihat Grafik Interaktif Chart.js, silakan buka Dasbor Web Anda! 📊
-👉 http://100.101.160.117:8000")
+    await message.answer("Untuk melihat Grafik Interaktif Chart.js, silakan buka Dasbor Web Anda! 📊\n👉 http://100.101.160.117:8000")
 
 @dp.message(F.text == "ℹ️ Bantuan")
 async def menu_bantuan(message: types.Message):
-    await message.answer("Ketikkan saja pengeluaran Anda seperti sedang chatting biasa! AI akan mengekstraknya otomatis. 🤖
-
-Contoh:
-- 'Isi bensin pertamax 50rb di vario KM 24500'
-- 'Ganti oli motul nmax harganya 150 ribu'
-- 'Bayar pajak tahunan mobil avanza 2 juta'")
+    await message.answer("Ketikkan saja pengeluaran Anda seperti sedang chatting biasa! AI akan mengekstraknya otomatis. 🤖\n\nContoh:\n- 'Isi bensin pertamax 50rb di vario KM 24500'\n- 'Ganti oli motul nmax harganya 150 ribu'\n- 'Bayar pajak tahunan mobil avanza 2 juta'")
 
 # --- HANDLER TEKS BEBAS (AI) ---
 
