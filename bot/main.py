@@ -49,11 +49,27 @@ async def parse_text_with_ai(text: str):
             print("Ollama Error:", e)
     return None
 
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
+menu_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="⛽ Catat BBM"), KeyboardButton(text="🛠️ Catat Servis/Sparepart")],
+        [KeyboardButton(text="🏍️ Garasi Saya"), KeyboardButton(text="🛢️ Status Oli")],
+        [KeyboardButton(text="📊 Riwayat BBM"), KeyboardButton(text="📈 Laporan Bulanan")],
+        [KeyboardButton(text="📉 Grafik Statistik"), KeyboardButton(text="ℹ️ Bantuan")]
+    ],
+    resize_keyboard=True,
+    persistent=True
+)
+
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
     await message.answer(
-        "Halo! Saya Bot Pencatat Kendaraan Anda. 🏍️🚗\n"
-        "Silakan ketik pengeluaran Anda (contoh: 'isi vario pertamax 35rb di km 24500')!"
+        "Halo! Saya Bot Pencatat Kendaraan Anda. 🏍️🚗
+"
+        "Silakan pilih menu di bawah ini, atau ketik langsung pengeluaran Anda (contoh: 'isi vario pertamax 35rb di km 24500')!",
+        reply_markup=menu_keyboard
+    )"
     )
 
 @dp.message()
