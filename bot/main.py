@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 
 # Ganti dengan Token Bot Telegram Anda
-BOT_TOKEN = "GANTI_DENGAN_TOKEN_BOT_ANDA"
+BOT_TOKEN = "8944264752:AAF-0L4gj-OPyq-s6qhbpw5caHvBvKMgnjU"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
 bot = Bot(token=BOT_TOKEN)
