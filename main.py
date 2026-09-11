@@ -109,3 +109,53 @@ async def export_excel(db: Session = Depends(get_db), username: str = Depends(ge
         maint_logs.to_excel(writer, sheet_name='Log_Servis_Oli', index=False)
         
     return FileResponse(path=file_path, filename="Laporan_Kendaraan.xlsx", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.get("/delete/{table}/{id}")
+async def delete_record(request: Request, table: str, id: int, db: Session = Depends(get_db), username: str = Depends(get_current_user)):
+    if table == "fuel":
+        record = db.query(models.FuelLog).filter(models.FuelLog.id == id).first()
+    elif table == "maintenance":
+        record = db.query(models.MaintenanceLog).filter(models.MaintenanceLog.id == id).first()
+    elif table == "vehicle":
+        record = db.query(models.Vehicle).filter(models.Vehicle.id == id).first()
+        
+    if record:
+        db.delete(record)
+        db.commit()
+    
+    url = f"/{table}s" if table == "vehicle" else f"/{table}"
+    return RedirectResponse(url=url, status_code=303)
+
+@app.post("/fuel/edit/{id}")
+async def edit_fuel(
+    request: Request, id: int, 
+    date: str = Form(...), fuel_type: str = Form(...), 
+    volume: float = Form(...), cost: int = Form(...), odometer: int = Form(...),
+    db: Session = Depends(get_db), username: str = Depends(get_current_user)
+):
+    record = db.query(models.FuelLog).filter(models.FuelLog.id == id).first()
+    if record:
+        record.date = datetime.strptime(date, "%Y-%m-%d").date()
+        record.fuel_type = fuel_type
+        record.volume_liters = volume
+        record.cost = cost
+        record.odometer = odometer
+        db.commit()
+    return RedirectResponse(url="/fuel", status_code=303)
+
+@app.post("/maintenance/edit/{id}")
+async def edit_maintenance(
+    request: Request, id: int, 
+    date: str = Form(...), category: str = Form(...), 
+    description: str = Form(...), cost: int = Form(...),
+    db: Session = Depends(get_db), username: str = Depends(get_current_user)
+):
+    record = db.query(models.MaintenanceLog).filter(models.MaintenanceLog.id == id).first()
+    if record:
+        record.date = datetime.strptime(date, "%Y-%m-%d").date()
+        record.category = category
+        record.description = description
+        record.cost = cost
+        db.commit()
+    return RedirectResponse(url="/maintenance", status_code=303)
