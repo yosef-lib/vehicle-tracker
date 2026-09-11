@@ -69,7 +69,6 @@ async def send_welcome(message: types.Message):
 "
         "Silakan pilih menu di bawah ini, atau ketik langsung pengeluaran Anda (contoh: 'isi vario pertamax 35rb di km 24500')!",
         reply_markup=menu_keyboard
-    )"
     )
 
 @dp.message()
