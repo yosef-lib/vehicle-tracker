@@ -125,6 +125,7 @@ async def process_bbm_input(message: types.Message, state: FSMContext):
     vehicle_id = data.get('vehicle_id')
     v_name = data.get('vehicle_name').upper()
     
+    import re
     # Ekstrak Biaya
     cost_match = re.search(r'(\d+)(?:\s*(ribu|rb|k))?', text)
     if not cost_match:
@@ -141,22 +142,45 @@ async def process_bbm_input(message: types.Message, state: FSMContext):
     km_match = re.search(r'(?:km\s*|kilometer\s*)(\d+)|(\d+)\s*km', text)
     odometer = int(km_match.group(1) or km_match.group(2)) if km_match else 0
     
-    # Ekstrak Jenis
-    jenis = "BBM"
-    for j in ['pertalite', 'pertamax', 'solar', 'shell', 'bp', 'vivo']:
-        if j in text:
-            jenis = j.capitalize()
-            break
+    # Ekstrak Jenis dan Harga
+    fuel_price = 10000 # Default
+    jenis = "Pertalite"
+    
+    if 'pertamax turbo' in text:
+        fuel_price = 14400
+        jenis = "Pertamax Turbo"
+    elif 'pertamax' in text:
+        fuel_price = 12950
+        jenis = "Pertamax"
+    elif 'solar' in text:
+        fuel_price = 6800
+        jenis = "Solar"
+    elif 'bp' in text or 'shell' in text or 'vivo' in text:
+        fuel_price = 14500
+        jenis = "BP/Shell/Vivo"
+    
+    volume_liters = round(cost / fuel_price, 2)
             
-    # Simpan ke DB
+    # Simpan ke DB & Hitung Konsumsi
     db = SessionLocal()
     try:
+        last_log = db.query(models.FuelLog).filter(
+            models.FuelLog.vehicle_id == vehicle_id, 
+            models.FuelLog.odometer > 0
+        ).order_by(models.FuelLog.date.desc(), models.FuelLog.id.desc()).first()
+        
+        jarak_tempuh = 0
+        if last_log and odometer > last_log.odometer:
+            jarak_tempuh = odometer - last_log.odometer
+            
+        konsumsi_kml = round(jarak_tempuh / volume_liters, 1) if volume_liters > 0 and jarak_tempuh > 0 else 0
+        
         new_log = models.FuelLog(
             vehicle_id=vehicle_id,
             date=datetime.now().date(),
             odometer=odometer,
             fuel_type=jenis,
-            volume_liters=0, # Bisa dihitung nanti
+            volume_liters=volume_liters,
             cost=cost,
             is_full=True
         )
@@ -167,7 +191,24 @@ async def process_bbm_input(message: types.Message, state: FSMContext):
     finally:
         db.close()
         
-    await message.answer(f"✅ Tersimpan Kilat ⚡\n\nKendaraan: {v_name}\nBBM: {jenis}\nBiaya: Rp {cost:,}\nOdo: {odometer} KM")
+    # Balasan Ringkasan Langsung
+    reply_msg = (
+        f"✅ **Tersimpan! Ringkasan BBM {v_name}**\n\n"
+        f"⛽ Isi: **{volume_liters} Liter** {jenis}\n"
+        f"💰 Biaya: **Rp {cost:,}** *(Rp {fuel_price:,}/L)*\n"
+        f"📍 Odo Saat Ini: **{odometer:,} KM**\n"
+    )
+    
+    if konsumsi_kml > 0:
+        reply_msg += (
+            f"\n📈 **Analisis Konsumsi:**\n"
+            f"Jarak Ditempuh: **{jarak_tempuh:,} KM**\n"
+            f"Efisiensi BBM: **{konsumsi_kml} KM/Liter** 🚀\n"
+        )
+    else:
+        reply_msg += "\n*(Isi BBM berikutnya untuk melihat efisiensi KM/L)*"
+        
+    await message.answer(reply_msg, parse_mode="Markdown")
     await state.clear()
 
 @dp.message(RecordState.typing_maintenance)
