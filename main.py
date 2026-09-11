@@ -24,7 +24,7 @@ async def read_root(request: Request, db: Session = Depends(get_db)):
     total_cost = 0
     recent_logs = db.query(models.FuelLog).order_by(models.FuelLog.date.desc()).limit(5).all()
     
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request=request, name="index.html", context={
         "request": request, 
         "title": "Dashboard Overview",
         "recent_logs": recent_logs,
@@ -51,7 +51,7 @@ async def export_excel(db: Session = Depends(get_db)):
 @app.get("/vehicles", response_class=HTMLResponse)
 async def vehicles_page(request: Request, db: Session = Depends(get_db)):
     vehicles = db.query(models.Vehicle).all()
-    return templates.TemplateResponse("vehicles.html", {"request": request, "title": "Kendaraan", "vehicles": vehicles})
+    return templates.TemplateResponse(request=request, name="vehicles.html", context={"request": request, "title": "Kendaraan", "vehicles": vehicles})
 
 if __name__ == "__main__":
     import uvicorn
