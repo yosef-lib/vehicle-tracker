@@ -176,16 +176,9 @@ async def process_bbm_km(message: types.Message, state: FSMContext):
     odometer = int(match.group(1))
     await state.update_data(odometer=odometer)
     
-    keyboard = [
-        [InlineKeyboardButton(text="📅 Hari Ini", callback_data="date_today")],
-        [InlineKeyboardButton(text="⏮️ Kemarin", callback_data="date_yesterday")]
-    ]
-    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    
     await message.answer(
-        f"✅ Odometer: **{odometer:,} KM**\n\n6️⃣ **Kapan tanggal pengisiannya?**\n*(Pilih tombol di bawah, atau ketik manual format YYYY-MM-DD, misal: 2026-09-10)*",
-        parse_mode="Markdown",
-        reply_markup=reply_markup
+        f"✅ Odometer: **{odometer:,} KM**\n\n6️⃣ **Tanggal berapa pengisian ini dilakukan?**\n*(Ketik dengan format DD-MM-YYYY, contoh: 11-09-2026)*",
+        parse_mode="Markdown"
     )
     await state.set_state(RecordState.bbm_typing_date)
 
@@ -203,16 +196,11 @@ async def save_bbm_data(message: types.Message, state: FSMContext, custom_date_s
     from datetime import datetime, timedelta
     
     # Tentukan Tanggal
-    if preset_date == "yesterday":
-        final_date = (datetime.now() - timedelta(days=1)).date()
-    elif preset_date == "today":
-        final_date = datetime.now().date()
-    else:
-        try:
-            final_date = datetime.strptime(custom_date_str, "%Y-%m-%d").date()
-        except:
-            await message.answer("⚠️ Format tanggal salah! Gunakan format YYYY-MM-DD (contoh: 2026-09-10) atau klik tombol.")
-            return
+    try:
+        final_date = datetime.strptime(custom_date_str, "%d-%m-%Y").date()
+    except:
+        await message.answer("⚠️ Format tanggal salah! Gunakan format DD-MM-YYYY (contoh: 11-09-2026).")
+        return
 
     # Ambil semua data
     data = await state.get_data()
@@ -315,16 +303,9 @@ async def process_maint_km(message: types.Message, state: FSMContext):
     odometer = int(match.group(1))
     await state.update_data(odometer=odometer)
     
-    keyboard = [
-        [InlineKeyboardButton(text="📅 Hari Ini", callback_data="mdate_today")],
-        [InlineKeyboardButton(text="⏮️ Kemarin", callback_data="mdate_yesterday")]
-    ]
-    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    
     await message.answer(
-        f"✅ Odometer: **{odometer:,} KM**\n\n6️⃣ **Kapan tanggal servis/gantinya?**\n*(Pilih tombol di bawah, atau ketik manual format YYYY-MM-DD)*",
-        parse_mode="Markdown",
-        reply_markup=reply_markup
+        f"✅ Odometer: **{odometer:,} KM**\n\n6️⃣ **Tanggal berapa servis/ganti oli ini dilakukan?**\n*(Ketik dengan format DD-MM-YYYY, contoh: 11-09-2026)*",
+        parse_mode="Markdown"
     )
     await state.set_state(RecordState.maint_typing_date)
 
@@ -341,16 +322,11 @@ async def process_maint_date_callback(callback: CallbackQuery, state: FSMContext
 async def save_maint_data(message: types.Message, state: FSMContext, custom_date_str=None, preset_date=None):
     from datetime import datetime, timedelta
     
-    if preset_date == "yesterday":
-        final_date = (datetime.now() - timedelta(days=1)).date()
-    elif preset_date == "today":
-        final_date = datetime.now().date()
-    else:
-        try:
-            final_date = datetime.strptime(custom_date_str, "%Y-%m-%d").date()
-        except:
-            await message.answer("⚠️ Format tanggal salah! Gunakan format YYYY-MM-DD atau klik tombol.")
-            return
+    try:
+        final_date = datetime.strptime(custom_date_str, "%d-%m-%Y").date()
+    except:
+        await message.answer("⚠️ Format tanggal salah! Gunakan format DD-MM-YYYY (contoh: 11-09-2026).")
+        return
             
     # Ambil data
     data = await state.get_data()
