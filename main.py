@@ -1,10 +1,24 @@
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse, FileResponse
-
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+import pandas as pd
+import os
 import secrets
-from fastapi import Depends, HTTPException, status
+from fastapi import HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
+from app.database import engine, Base, get_db
+from app import models
+
+# Buat tabel database
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Vehicle Tracker API")
+
+# Setup Auth
 security = HTTPBasic()
 
 def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
@@ -18,29 +32,17 @@ def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
-import pandas as pd
-import os
-
-from app.database import engine, Base, get_db
-from app import models
-
-# Buat tabel database
-Base.metadata.create_all(bind=engine)
-
-app = FastAPI(title="Vehicle Tracker API")
-
 # Mount folder statis dan template HTML
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, db: Session = Depends(get_db), username: str = Depends(get_current_user)):
-    # Data ringkasan (Mock/Sederhana)
-    total_cost = 0
     recent_logs = db.query(models.FuelLog).order_by(models.FuelLog.date.desc()).limit(5).all()
+    # Hitung total cost
+    fuel_cost = db.query(func.sum(models.FuelLog.cost)).scalar() or 0
+    maint_cost = db.query(func.sum(models.MaintenanceLog.cost)).scalar() or 0
+    total_cost = fuel_cost + maint_cost
     
     return templates.TemplateResponse(request=request, name="index.html", context={
         "request": request, 
@@ -49,28 +51,43 @@ async def read_root(request: Request, db: Session = Depends(get_db), username: s
         "total_cost": total_cost
     })
 
+@app.get("/vehicles", response_class=HTMLResponse)
+async def vehicles_page(request: Request, db: Session = Depends(get_db), username: str = Depends(get_current_user)):
+    vehicles = db.query(models.Vehicle).all()
+    return templates.TemplateResponse(request=request, name="vehicles.html", context={
+        "request": request, "title": "Data Kendaraan", "vehicles": vehicles
+    })
+
+@app.get("/fuel", response_class=HTMLResponse)
+async def fuel_page(request: Request, db: Session = Depends(get_db), username: str = Depends(get_current_user)):
+    logs = db.query(models.FuelLog).order_by(models.FuelLog.date.desc()).all()
+    return templates.TemplateResponse(request=request, name="fuel.html", context={
+        "request": request, "title": "Riwayat BBM", "logs": logs
+    })
+
+@app.get("/maintenance", response_class=HTMLResponse)
+async def maintenance_page(request: Request, db: Session = Depends(get_db), username: str = Depends(get_current_user)):
+    logs = db.query(models.MaintenanceLog).order_by(models.MaintenanceLog.date.desc()).all()
+    return templates.TemplateResponse(request=request, name="maintenance.html", context={
+        "request": request, "title": "Servis & Oli", "logs": logs
+    })
+
+@app.get("/tax", response_class=HTMLResponse)
+async def tax_page(request: Request, db: Session = Depends(get_db), username: str = Depends(get_current_user)):
+    # Untuk sementara, tax bisa ngambil dari MaintenanceLog category 'Pajak'
+    logs = db.query(models.MaintenanceLog).filter(models.MaintenanceLog.category == 'Pajak').order_by(models.MaintenanceLog.date.desc()).all()
+    return templates.TemplateResponse(request=request, name="tax.html", context={
+        "request": request, "title": "Data Pajak", "logs": logs
+    })
+
 @app.get("/export")
-async def export_excel(db: Session = Depends(get_db)):
-    """Mengexport semua data log ke dalam file Excel"""
-    # Ambil data dari database menggunakan Pandas
+async def export_excel(db: Session = Depends(get_db), username: str = Depends(get_current_user)):
     fuel_logs = pd.read_sql(db.query(models.FuelLog).statement, db.bind)
     maint_logs = pd.read_sql(db.query(models.MaintenanceLog).statement, db.bind)
     
     file_path = "Laporan_Kendaraan.xlsx"
-    
-    # Tulis ke dalam file Excel dengan beberapa sheet
     with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
         fuel_logs.to_excel(writer, sheet_name='Log_BBM', index=False)
         maint_logs.to_excel(writer, sheet_name='Log_Servis_Oli', index=False)
         
     return FileResponse(path=file_path, filename="Laporan_Kendaraan.xlsx", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-# Endpoint CRUD Halaman lainnya (Kendaraan, Servis, Pajak)
-@app.get("/vehicles", response_class=HTMLResponse)
-async def vehicles_page(request: Request, db: Session = Depends(get_db)):
-    vehicles = db.query(models.Vehicle).all()
-    return templates.TemplateResponse(request=request, name="vehicles.html", context={"request": request, "title": "Kendaraan", "vehicles": vehicles})
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
