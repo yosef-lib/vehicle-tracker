@@ -36,10 +36,12 @@ class RecordState(StatesGroup):
     bbm_choosing_type = State()
     bbm_typing_cost = State()
     bbm_typing_km = State()
+    bbm_typing_date = State()
     
     maint_typing_desc = State()
     maint_typing_cost = State()
     maint_typing_km = State()
+    maint_typing_date = State()
 
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message, state: FSMContext):
@@ -172,8 +174,47 @@ async def process_bbm_km(message: types.Message, state: FSMContext):
         return
         
     odometer = int(match.group(1))
+    await state.update_data(odometer=odometer)
     
-    # Save to DB
+    keyboard = [
+        [InlineKeyboardButton(text="📅 Hari Ini", callback_data="date_today")],
+        [InlineKeyboardButton(text="⏮️ Kemarin", callback_data="date_yesterday")]
+    ]
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    
+    await message.answer(
+        f"✅ Odometer: **{odometer:,} KM**\n\n6️⃣ **Kapan tanggal pengisiannya?**\n*(Pilih tombol di bawah, atau ketik manual format YYYY-MM-DD, misal: 2026-09-10)*",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
+    await state.set_state(RecordState.bbm_typing_date)
+
+@dp.message(RecordState.bbm_typing_date)
+async def process_bbm_date_text(message: types.Message, state: FSMContext):
+    await save_bbm_data(message, state, custom_date_str=message.text)
+
+@dp.callback_query(RecordState.bbm_typing_date, F.data.startswith("date_"))
+async def process_bbm_date_callback(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Menyimpan data... ⏳")
+    date_val = callback.data.split("_")[1]
+    await save_bbm_data(callback.message, state, preset_date=date_val)
+
+async def save_bbm_data(message: types.Message, state: FSMContext, custom_date_str=None, preset_date=None):
+    from datetime import datetime, timedelta
+    
+    # Tentukan Tanggal
+    if preset_date == "yesterday":
+        final_date = (datetime.now() - timedelta(days=1)).date()
+    elif preset_date == "today":
+        final_date = datetime.now().date()
+    else:
+        try:
+            final_date = datetime.strptime(custom_date_str, "%Y-%m-%d").date()
+        except:
+            await message.answer("⚠️ Format tanggal salah! Gunakan format YYYY-MM-DD (contoh: 2026-09-10) atau klik tombol.")
+            return
+
+    # Ambil semua data
     data = await state.get_data()
     vehicle_id = data.get('vehicle_id')
     v_name = data.get('vehicle_name').upper()
@@ -198,7 +239,7 @@ async def process_bbm_km(message: types.Message, state: FSMContext):
         
         new_log = models.FuelLog(
             vehicle_id=vehicle_id,
-            date=datetime.now().date(),
+            date=final_date,
             odometer=odometer,
             fuel_type=fuel_name,
             volume_liters=volume_liters,
@@ -272,8 +313,46 @@ async def process_maint_km(message: types.Message, state: FSMContext):
         return
         
     odometer = int(match.group(1))
+    await state.update_data(odometer=odometer)
     
-    # Save to DB
+    keyboard = [
+        [InlineKeyboardButton(text="📅 Hari Ini", callback_data="mdate_today")],
+        [InlineKeyboardButton(text="⏮️ Kemarin", callback_data="mdate_yesterday")]
+    ]
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    
+    await message.answer(
+        f"✅ Odometer: **{odometer:,} KM**\n\n6️⃣ **Kapan tanggal servis/gantinya?**\n*(Pilih tombol di bawah, atau ketik manual format YYYY-MM-DD)*",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
+    await state.set_state(RecordState.maint_typing_date)
+
+@dp.message(RecordState.maint_typing_date)
+async def process_maint_date_text(message: types.Message, state: FSMContext):
+    await save_maint_data(message, state, custom_date_str=message.text)
+
+@dp.callback_query(RecordState.maint_typing_date, F.data.startswith("mdate_"))
+async def process_maint_date_callback(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("Menyimpan data... ⏳")
+    date_val = callback.data.split("_")[1]
+    await save_maint_data(callback.message, state, preset_date=date_val)
+
+async def save_maint_data(message: types.Message, state: FSMContext, custom_date_str=None, preset_date=None):
+    from datetime import datetime, timedelta
+    
+    if preset_date == "yesterday":
+        final_date = (datetime.now() - timedelta(days=1)).date()
+    elif preset_date == "today":
+        final_date = datetime.now().date()
+    else:
+        try:
+            final_date = datetime.strptime(custom_date_str, "%Y-%m-%d").date()
+        except:
+            await message.answer("⚠️ Format tanggal salah! Gunakan format YYYY-MM-DD atau klik tombol.")
+            return
+            
+    # Ambil data
     data = await state.get_data()
     vehicle_id = data.get('vehicle_id')
     v_name = data.get('vehicle_name').upper()
@@ -285,7 +364,7 @@ async def process_maint_km(message: types.Message, state: FSMContext):
     try:
         new_log = models.MaintenanceLog(
             vehicle_id=vehicle_id,
-            date=datetime.now().date(),
+            date=final_date,
             category=category.capitalize(),
             description=desc.capitalize(),
             odometer=odometer,
