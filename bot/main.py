@@ -5,6 +5,14 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
+from app.database import SessionLocal, engine
+from app import models
+from datetime import datetime
+
+# Pastikan tabel dibuat
+models.Base.metadata.create_all(bind=engine)
+
+
 # Ganti dengan Token Bot Telegram Anda
 BOT_TOKEN = "8944264752:AAF-0L4gj-OPyq-s6qhbpw5caHvBvKMgnjU"
 OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -117,6 +125,7 @@ async def handle_message(message: types.Message):
     category = parsed_data.get('category')
     vehicle = parsed_data.get('vehicle', '').lower()
     cost = parsed_data.get('cost', 0)
+    odometer = parsed_data.get('odometer', 0)
     detail = parsed_data.get('detail', '').lower()
 
     # Logika Validasi Kapasitas Tangki (Anti Meluber)
@@ -141,9 +150,66 @@ async def handle_message(message: types.Message):
                     f"Silakan perbaiki (Ketik: 'Revisi, harga sebenarnya...')!"
                 )
                 return
+    # --- SIMPAN KE DATABASE SQLITE ---
+    db = SessionLocal()
+    try:
+        # Cari atau buat kendaraan (jika belum ada di database)
+        db_vehicle = db.query(models.Vehicle).filter(models.Vehicle.name == vehicle).first()
+        if not db_vehicle:
+            db_vehicle = models.Vehicle(name=vehicle)
+            db.add(db_vehicle)
+            db.commit()
+            db.refresh(db_vehicle)
+            
+        today = datetime.now().date()
+        
+        if category == "bbm":
+            volume = 0
+            # Pastikan variabel fuel_price ada (bisa saja belum didefinisikan jika tangki tidak dicek)
+            f_price = 0
+            for f_name, p in FUEL_PRICES.items():
+                if f_name in detail:
+                    f_price = p
+                    break
+            
+            if f_price > 0:
+                volume = round(cost / f_price, 2)
+                
+            new_log = models.FuelLog(
+                vehicle_id=db_vehicle.id,
+                date=today,
+                odometer=int(odometer) if odometer else 0,
+                fuel_type=detail,
+                volume_liters=volume,
+                cost=cost,
+                is_full=True
+            )
+            db.add(new_log)
+        else:
+            new_log = models.MaintenanceLog(
+                vehicle_id=db_vehicle.id,
+                date=today,
+                category=category.capitalize(),
+                description=detail,
+                odometer=int(odometer) if odometer else 0,
+                cost=cost
+            )
+            db.add(new_log)
+            
+        db.commit()
+    except Exception as e:
+        print("DB Error:", e)
+    finally:
+        db.close()
+        
+    await message.answer(f"✅ Data berhasil dicatat & disinkronkan ke Dasbor Web! 🌐
 
-    # TODO: Simpan ke database SQLite
-    await message.answer(f"✅ Data berhasil dicatat!\n\nKategori: {category.capitalize()}\nKendaraan: {vehicle.capitalize()}\nBiaya: Rp{cost:,}\n\n(Ketik 'Revisi' jika ada kesalahan)")
+Kategori: {category.capitalize()}
+Kendaraan: {vehicle.capitalize()}
+Biaya: Rp{cost:,}
+
+(Cek Grafik Dasbor Anda!)")
+
 
 from bot.scheduler import setup_scheduler
 
