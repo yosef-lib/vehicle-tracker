@@ -32,8 +32,14 @@ menu_keyboard = ReplyKeyboardMarkup(
 class RecordState(StatesGroup):
     choosing_vehicle = State()
     choosing_category = State()
-    typing_bbm = State()
-    typing_maintenance = State()
+    
+    bbm_choosing_type = State()
+    bbm_typing_cost = State()
+    bbm_typing_km = State()
+    
+    maint_typing_desc = State()
+    maint_typing_cost = State()
+    maint_typing_km = State()
 
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message, state: FSMContext):
@@ -44,10 +50,11 @@ async def send_welcome(message: types.Message, state: FSMContext):
         reply_markup=menu_keyboard
     )
 
-# --- ALUR CATAT PENGELUARAN (FSM) ---
+# --- ALUR CATAT PENGELUARAN (WIZARD STEP-BY-STEP) ---
 
 @dp.message(F.text == "📝 Catat Pengeluaran Baru")
 async def start_catat(message: types.Message, state: FSMContext):
+    await state.clear()
     db = SessionLocal()
     try:
         vehicles = db.query(models.Vehicle).all()
@@ -60,8 +67,7 @@ async def start_catat(message: types.Message, state: FSMContext):
             keyboard.append([InlineKeyboardButton(text=f"🏍️ {v.name.capitalize()}", callback_data=f"veh_{v.id}")])
             
         reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-        
-        await message.answer("Pilih kendaraan mana yang ingin dicatat:", reply_markup=reply_markup)
+        await message.answer("1️⃣ **Pilih Kendaraan:**", reply_markup=reply_markup, parse_mode="Markdown")
         await state.set_state(RecordState.choosing_vehicle)
     finally:
         db.close()
@@ -69,7 +75,6 @@ async def start_catat(message: types.Message, state: FSMContext):
 @dp.callback_query(RecordState.choosing_vehicle, F.data.startswith("veh_"))
 async def process_vehicle_choice(callback: CallbackQuery, state: FSMContext):
     vehicle_id = int(callback.data.split("_")[1])
-    
     db = SessionLocal()
     try:
         vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == vehicle_id).first()
@@ -82,9 +87,8 @@ async def process_vehicle_choice(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="🧾 Pajak", callback_data="cat_pajak")]
         ]
         reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-        
         await callback.message.edit_text(
-            f"Kendaraan terpilih: **{vehicle.name.upper()}**\nKategori pengeluaran apa?",
+            f"Kendaraan: **{vehicle.name.upper()}**\n\n2️⃣ **Pilih Kategori:**",
             parse_mode="Markdown",
             reply_markup=reply_markup
         )
@@ -97,71 +101,88 @@ async def process_category_choice(callback: CallbackQuery, state: FSMContext):
     category = callback.data.split("_")[1]
     await state.update_data(category=category)
     
-    data = await state.get_data()
-    v_name = data.get('vehicle_name').upper()
-    
     if category == "bbm":
-        await callback.message.edit_text(
-            f"⛽ **BBM untuk {v_name}**\n\n"
-            f"Ketik biaya, Odometer (KM), dan Jenis BBM.\n"
-            f"Contoh: *30000 km 12800 pertalite*",
-            parse_mode="Markdown"
-        )
-        await state.set_state(RecordState.typing_bbm)
+        keyboard = [
+            [InlineKeyboardButton(text="Pertalite", callback_data="fuel_pertalite"), InlineKeyboardButton(text="Pertamax", callback_data="fuel_pertamax")],
+            [InlineKeyboardButton(text="Pertamax Turbo", callback_data="fuel_turbo"), InlineKeyboardButton(text="Solar", callback_data="fuel_solar")],
+            [InlineKeyboardButton(text="Shell / BP / Vivo", callback_data="fuel_shell")]
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        await callback.message.edit_text("3️⃣ **Pilih Jenis BBM:**", reply_markup=reply_markup, parse_mode="Markdown")
+        await state.set_state(RecordState.bbm_choosing_type)
     else:
-        nama_kategori = "Servis/Sparepart" if category == "servis" else ("Ganti Oli" if category == "oli" else "Pajak")
+        nama_kategori = "Servis & Sparepart" if category == "servis" else ("Ganti Oli" if category == "oli" else "Pajak")
         await callback.message.edit_text(
-            f"🛠️ **{nama_kategori} untuk {v_name}**\n\n"
-            f"Ketik biaya, Odometer (KM), dan Keterangan.\n"
-            f"Contoh: *150000 km 12800 ganti busi dan kampas*",
+            f"3️⃣ **Apa saja yang dilakukan/diganti?**\n\n"
+            f"*(Ketikkan keterangannya, contoh: Ganti kampas rem depan, V-Belt, Oli Gardan)*",
             parse_mode="Markdown"
         )
-        await state.set_state(RecordState.typing_maintenance)
+        await state.set_state(RecordState.maint_typing_desc)
 
-@dp.message(RecordState.typing_bbm)
-async def process_bbm_input(message: types.Message, state: FSMContext):
-    text = message.text.lower()
+# --- WIZARD BBM ---
+
+@dp.callback_query(RecordState.bbm_choosing_type, F.data.startswith("fuel_"))
+async def process_bbm_type(callback: CallbackQuery, state: FSMContext):
+    jenis = callback.data.split("_")[1]
+    
+    fuel_map = {
+        "pertalite": ("Pertalite", 10000),
+        "pertamax": ("Pertamax", 12950),
+        "turbo": ("Pertamax Turbo", 14400),
+        "solar": ("Solar", 6800),
+        "shell": ("Shell/BP/Vivo", 14500)
+    }
+    
+    fuel_name, fuel_price = fuel_map.get(jenis, ("BBM", 10000))
+    await state.update_data(fuel_name=fuel_name, fuel_price=fuel_price)
+    
+    await callback.message.edit_text(
+        f"✅ Jenis: **{fuel_name}**\n\n4️⃣ **Berapa total biayanya (Rupiah)?**\n*(Ketik angkanya saja, misal: 35000 atau 35rb)*",
+        parse_mode="Markdown"
+    )
+    await state.set_state(RecordState.bbm_typing_cost)
+
+@dp.message(RecordState.bbm_typing_cost)
+async def process_bbm_cost(message: types.Message, state: FSMContext):
+    text = message.text.lower().replace('.', '').replace(',', '')
+    match = re.search(r'(\d+)(?:\s*(ribu|rb|k))?', text)
+    if not match:
+        await message.answer("⚠️ Harap masukkan angka. Berapa total biayanya?")
+        return
+        
+    val = int(match.group(1))
+    if match.group(2) in ['ribu', 'rb', 'k'] or val < 1000:
+        cost = val * 1000
+    else:
+        cost = val
+        
+    await state.update_data(cost=cost)
+    await message.answer(
+        f"✅ Biaya: **Rp {cost:,}**\n\n5️⃣ **Berapa angka Odometer (KM) saat ini?**\n*(Lihat di speedometer Anda, ketik angkanya saja, misal: 12500)*",
+        parse_mode="Markdown"
+    )
+    await state.set_state(RecordState.bbm_typing_km)
+
+@dp.message(RecordState.bbm_typing_km)
+async def process_bbm_km(message: types.Message, state: FSMContext):
+    text = message.text.lower().replace('.', '').replace(',', '')
+    match = re.search(r'(\d+)', text)
+    if not match:
+        await message.answer("⚠️ Harap masukkan angka KM. Berapa Odometer saat ini?")
+        return
+        
+    odometer = int(match.group(1))
+    
+    # Save to DB
     data = await state.get_data()
     vehicle_id = data.get('vehicle_id')
     v_name = data.get('vehicle_name').upper()
-    
-    import re
-    # Ekstrak Biaya
-    cost_match = re.search(r'(\d+)(?:\s*(ribu|rb|k))?', text)
-    if not cost_match:
-        await message.answer("⚠️ Format salah! Saya tidak menemukan angka biaya. Coba lagi (cth: 30000 km 12000 pertalite):")
-        return
-        
-    cost_val = int(cost_match.group(1))
-    if cost_match.group(2) in ['ribu', 'rb', 'k'] or cost_val < 1000:
-        cost = cost_val * 1000
-    else:
-        cost = cost_val
-        
-    # Ekstrak KM
-    km_match = re.search(r'(?:km\s*|kilometer\s*)(\d+)|(\d+)\s*km', text)
-    odometer = int(km_match.group(1) or km_match.group(2)) if km_match else 0
-    
-    # Ekstrak Jenis dan Harga
-    fuel_price = 10000 # Default
-    jenis = "Pertalite"
-    
-    if 'pertamax turbo' in text:
-        fuel_price = 14400
-        jenis = "Pertamax Turbo"
-    elif 'pertamax' in text:
-        fuel_price = 12950
-        jenis = "Pertamax"
-    elif 'solar' in text:
-        fuel_price = 6800
-        jenis = "Solar"
-    elif 'bp' in text or 'shell' in text or 'vivo' in text:
-        fuel_price = 14500
-        jenis = "BP/Shell/Vivo"
+    fuel_name = data.get('fuel_name')
+    fuel_price = data.get('fuel_price')
+    cost = data.get('cost')
     
     volume_liters = round(cost / fuel_price, 2)
             
-    # Simpan ke DB & Hitung Konsumsi
     db = SessionLocal()
     try:
         last_log = db.query(models.FuelLog).filter(
@@ -179,92 +200,111 @@ async def process_bbm_input(message: types.Message, state: FSMContext):
             vehicle_id=vehicle_id,
             date=datetime.now().date(),
             odometer=odometer,
-            fuel_type=jenis,
+            fuel_type=fuel_name,
             volume_liters=volume_liters,
             cost=cost,
             is_full=True
         )
         db.add(new_log)
         db.commit()
-    except Exception as e:
-        print(e)
     finally:
         db.close()
         
-    # Balasan Ringkasan Langsung
     reply_msg = (
-        f"✅ **Tersimpan! Ringkasan BBM {v_name}**\n\n"
-        f"⛽ Isi: **{volume_liters} Liter** {jenis}\n"
+        f"✅ **BBM {v_name} Tersimpan!**\n\n"
+        f"⛽ Isi: **{volume_liters} Liter** {fuel_name}\n"
         f"💰 Biaya: **Rp {cost:,}** *(Rp {fuel_price:,}/L)*\n"
-        f"📍 Odo Saat Ini: **{odometer:,} KM**\n"
+        f"📍 Odo: **{odometer:,} KM**\n"
     )
-    
     if konsumsi_kml > 0:
         reply_msg += (
             f"\n📈 **Analisis Konsumsi:**\n"
-            f"Jarak Ditempuh: **{jarak_tempuh:,} KM**\n"
-            f"Efisiensi BBM: **{konsumsi_kml} KM/Liter** 🚀\n"
+            f"Jarak: **{jarak_tempuh:,} KM**\n"
+            f"Efisiensi: **{konsumsi_kml} KM/Liter** 🚀\n"
         )
-    else:
-        reply_msg += "\n*(Isi BBM berikutnya untuk melihat efisiensi KM/L)*"
         
     await message.answer(reply_msg, parse_mode="Markdown")
     await state.clear()
 
-@dp.message(RecordState.typing_maintenance)
-async def process_maintenance_input(message: types.Message, state: FSMContext):
-    text = message.text.lower()
+# --- WIZARD MAINTENANCE ---
+
+@dp.message(RecordState.maint_typing_desc)
+async def process_maint_desc(message: types.Message, state: FSMContext):
+    desc = message.text
+    await state.update_data(description=desc)
+    
+    await message.answer(
+        f"✅ Keterangan: *{desc}*\n\n4️⃣ **Berapa total biayanya (Rupiah)?**\n*(Ketik angkanya saja, misal: 150000)*",
+        parse_mode="Markdown"
+    )
+    await state.set_state(RecordState.maint_typing_cost)
+
+@dp.message(RecordState.maint_typing_cost)
+async def process_maint_cost(message: types.Message, state: FSMContext):
+    text = message.text.lower().replace('.', '').replace(',', '')
+    match = re.search(r'(\d+)(?:\s*(ribu|rb|k|juta|jt))?', text)
+    if not match:
+        await message.answer("⚠️ Harap masukkan angka. Berapa total biayanya?")
+        return
+        
+    val = int(match.group(1))
+    multiplier = match.group(2)
+    if multiplier in ['ribu', 'rb', 'k'] or (val < 1000 and multiplier is None):
+        cost = val * 1000
+    elif multiplier in ['juta', 'jt']:
+        cost = val * 1000000
+    else:
+        cost = val
+        
+    await state.update_data(cost=cost)
+    await message.answer(
+        f"✅ Biaya: **Rp {cost:,}**\n\n5️⃣ **Berapa angka Odometer (KM) saat ini?**\n*(Lihat di speedometer, ketik angkanya saja)*",
+        parse_mode="Markdown"
+    )
+    await state.set_state(RecordState.maint_typing_km)
+
+@dp.message(RecordState.maint_typing_km)
+async def process_maint_km(message: types.Message, state: FSMContext):
+    text = message.text.lower().replace('.', '').replace(',', '')
+    match = re.search(r'(\d+)', text)
+    if not match:
+        await message.answer("⚠️ Harap masukkan angka KM. Berapa Odometer saat ini?")
+        return
+        
+    odometer = int(match.group(1))
+    
+    # Save to DB
     data = await state.get_data()
     vehicle_id = data.get('vehicle_id')
     v_name = data.get('vehicle_name').upper()
     category = data.get('category')
-    
-    # Ekstrak Biaya
-    cost_match = re.search(r'(\d+)(?:\s*(ribu|rb|k|juta|jt))?', text)
-    if not cost_match:
-        await message.answer("⚠️ Format salah! Saya tidak menemukan angka biaya. Coba lagi:")
-        return
-        
-    cost_val = int(cost_match.group(1))
-    multiplier = cost_match.group(2)
-    if multiplier in ['ribu', 'rb', 'k'] or (cost_val < 1000 and multiplier is None):
-        cost = cost_val * 1000
-    elif multiplier in ['juta', 'jt']:
-        cost = cost_val * 1000000
-    else:
-        cost = cost_val
-        
-    # Ekstrak KM
-    km_match = re.search(r'(?:km\s*|kilometer\s*)(\d+)|(\d+)\s*km', text)
-    odometer = int(km_match.group(1) or km_match.group(2)) if km_match else 0
-    
-    # Hapus biaya dan km dari keterangan
-    keterangan = re.sub(r'\b(\d+)(?:\s*(ribu|rb|k|juta|jt))?\b', '', text)
-    keterangan = re.sub(r'(?:km\s*|kilometer\s*)(\d+)|(\d+)\s*km', '', keterangan).strip()
-    if len(keterangan) < 2:
-        keterangan = "Lainnya"
-        
-    # Simpan ke DB
+    desc = data.get('description')
+    cost = data.get('cost')
+            
     db = SessionLocal()
     try:
         new_log = models.MaintenanceLog(
             vehicle_id=vehicle_id,
             date=datetime.now().date(),
             category=category.capitalize(),
-            description=keterangan.capitalize(),
+            description=desc.capitalize(),
             odometer=odometer,
             cost=cost
         )
         db.add(new_log)
         db.commit()
-    except Exception as e:
-        print(e)
     finally:
         db.close()
         
-    await message.answer(f"✅ Tersimpan Kilat ⚡\n\nKendaraan: {v_name}\nKategori: {category.capitalize()}\nBiaya: Rp {cost:,}\nKeterangan: {keterangan.capitalize()}")
+    await message.answer(
+        f"✅ **Servis {v_name} Tersimpan!**\n\n"
+        f"🛠️ Kategori: **{category.capitalize()}**\n"
+        f"📝 Keterangan: {desc.capitalize()}\n"
+        f"💰 Biaya: **Rp {cost:,}**\n"
+        f"📍 Odo: **{odometer:,} KM**\n",
+        parse_mode="Markdown"
+    )
     await state.clear()
-
 
 # --- HANDLER MENU (NON-FSM) ---
 
