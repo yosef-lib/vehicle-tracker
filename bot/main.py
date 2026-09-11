@@ -89,27 +89,136 @@ async def menu_catat_servis(message: types.Message):
 
 @dp.message(F.text == "🏍️ Garasi Saya")
 async def menu_garasi(message: types.Message):
-    await message.answer("Fitur Garasi sedang sinkronisasi dengan Database Dasbor Web Anda... 🔄")
+    db = SessionLocal()
+    try:
+        vehicles = db.query(models.Vehicle).all()
+        if not vehicles:
+            await message.answer("Garasi Anda masih kosong. 🏍️
+Ketik pengisian BBM atau klik 'Tambah Kendaraan' di Web.")
+            return
+            
+        teks = "🏍️ **GARASI SAYA** 🚗
+
+"
+        for v in vehicles:
+            teks += f"▪️ **{v.name.upper()}** ({v.type})
+"
+            teks += f"   Plat: {v.license_plate or '-'}
+
+"
+        await message.answer(teks, parse_mode="Markdown")
+    finally:
+        db.close()
 
 @dp.message(F.text == "🛢️ Status Oli")
 async def menu_status_oli(message: types.Message):
-    await message.answer("Fitur Status Oli sedang menghitung rata-rata pemakaian KM harian Anda... 🧮")
+    db = SessionLocal()
+    try:
+        # Ambil log ganti oli terakhir
+        last_oli = db.query(models.MaintenanceLog).filter(models.MaintenanceLog.category.ilike('%oli%')).order_by(models.MaintenanceLog.date.desc()).first()
+        if not last_oli:
+            await message.answer("Belum ada catatan ganti oli di sistem. 🛢️")
+            return
+            
+        vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == last_oli.vehicle_id).first()
+        v_name = vehicle.name if vehicle else "Kendaraan"
+        
+        teks = "🛢️ **STATUS OLI TERAKHIR**
+
+"
+        teks += f"🏍️ Kendaraan: {v_name.capitalize()}
+"
+        teks += f"📅 Tanggal: {last_oli.date}
+"
+        teks += f"📍 Odometer: {last_oli.odometer:,} KM
+"
+        teks += f"📝 Keterangan: {last_oli.description.capitalize()}
+"
+        teks += f"💰 Biaya: Rp {last_oli.cost:,}
+
+"
+        teks += "*Catat terus pengeluaran Anda agar prediksi ganti oli berikutnya lebih akurat!*"
+        
+        await message.answer(teks, parse_mode="Markdown")
+    finally:
+        db.close()
 
 @dp.message(F.text == "📊 Riwayat BBM")
 async def menu_riwayat_bbm(message: types.Message):
-    await message.answer("Anda bisa melihat riwayat BBM secara lengkap dan mengunduh Excel-nya melalui Dasbor Web! 🌐")
+    db = SessionLocal()
+    try:
+        logs = db.query(models.FuelLog).order_by(models.FuelLog.date.desc()).limit(5).all()
+        if not logs:
+            await message.answer("Belum ada riwayat pengisian BBM. ⛽")
+            return
+            
+        teks = "📊 **5 RIWAYAT BBM TERAKHIR**
+
+"
+        for log in logs:
+            vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == log.vehicle_id).first()
+            v_name = vehicle.name if vehicle else "?"
+            teks += f"📅 {log.date} | 🏍️ {v_name.capitalize()}
+"
+            teks += f"⛽ {log.volume_liters}L {log.fuel_type.capitalize()} (Rp{log.cost:,})
+"
+            teks += f"📍 KM {log.odometer:,}
+
+"
+            
+        teks += "*(Cek Dasbor Web untuk melihat riwayat selengkapnya!)*"
+        await message.answer(teks, parse_mode="Markdown")
+    finally:
+        db.close()
 
 @dp.message(F.text == "📈 Laporan Bulanan")
 async def menu_laporan(message: types.Message):
-    await message.answer("Merekap pengeluaran bulan ini... (Segera hadir di V1.1) 📆")
+    db = SessionLocal()
+    try:
+        from sqlalchemy import extract, func
+        current_month = datetime.now().month
+        current_year = datetime.now().year
+        
+        fuel_cost = db.query(func.sum(models.FuelLog.cost)).filter(
+            extract('month', models.FuelLog.date) == current_month,
+            extract('year', models.FuelLog.date) == current_year
+        ).scalar() or 0
+        
+        maint_cost = db.query(func.sum(models.MaintenanceLog.cost)).filter(
+            extract('month', models.MaintenanceLog.date) == current_month,
+            extract('year', models.MaintenanceLog.date) == current_year
+        ).scalar() or 0
+        
+        total = fuel_cost + maint_cost
+        
+        teks = f"📈 **LAPORAN BULAN INI** ({current_month}/{current_year})
+
+"
+        teks += f"⛽ Total BBM: Rp {fuel_cost:,}
+"
+        teks += f"🛠️ Total Servis/Lainnya: Rp {maint_cost:,}
+"
+        teks += "〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️
+"
+        teks += f"💰 **TOTAL PENGELUARAN: Rp {total:,}**"
+        
+        await message.answer(teks, parse_mode="Markdown")
+    finally:
+        db.close()
 
 @dp.message(F.text == "📉 Grafik Statistik")
 async def menu_grafik(message: types.Message):
-    await message.answer("Silakan buka Dasbor Web Anda untuk melihat grafik Interaktif Chart.js! 📊")
+    await message.answer("Untuk melihat Grafik Interaktif Chart.js, silakan buka Dasbor Web Anda! 📊
+👉 http://100.101.160.117:8000")
 
 @dp.message(F.text == "ℹ️ Bantuan")
 async def menu_bantuan(message: types.Message):
-    await message.answer("Ketikkan saja apa yang Anda keluarkan dengan bahasa natural. AI akan mengurus sisanya! 🤖")
+    await message.answer("Ketikkan saja pengeluaran Anda seperti sedang chatting biasa! AI akan mengekstraknya otomatis. 🤖
+
+Contoh:
+- 'Isi bensin pertamax 50rb di vario KM 24500'
+- 'Ganti oli motul nmax harganya 150 ribu'
+- 'Bayar pajak tahunan mobil avanza 2 juta'")
 
 # --- HANDLER TEKS BEBAS (AI) ---
 
