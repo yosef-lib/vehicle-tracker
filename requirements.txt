@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+sqlalchemy
+aiogram>=3.0.0
+jinja2
+python-multipart
+httpx
+apscheduler
+pandas
+openpyxl
+python-jose[cryptography]
+passlib[bcrypt]

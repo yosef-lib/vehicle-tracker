@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - Vehicle Tracker</title>
+    <!-- TailwindCSS (CDN for simplicity) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- HTMX for seamless interactions -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <!-- Alpine.js for lightweight frontend logic -->
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js" defer></script>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans antialiased">
+
+    <!-- Navbar -->
+    <nav class="bg-blue-600 shadow-md p-4 text-white">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold">🏍️ Vehicle Tracker</h1>
+            <ul class="flex space-x-6">
+                <li><a href="#" class="hover:text-blue-200">Overview</a></li>
+                <li><a href="#" class="hover:text-blue-200">Kendaraan</a></li>
+                <li><a href="#" class="hover:text-blue-200">BBM</a></li>
+                <li><a href="#" class="hover:text-blue-200">Servis</a></li>
+                <li><a href="#" class="hover:text-blue-200">Pajak</a></li>
+                <li><a href="#" class="bg-red-500 px-3 py-1 rounded hover:bg-red-600 transition">Logout</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container mx-auto mt-8 p-4">
+        {% block content %}{% endblock %}
+    </main>
+
+</body>
+</html>
