@@ -1,39 +1,26 @@
 import os
-import json
-import httpx
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.filters import Command, StateFilter
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 
 from app.database import SessionLocal, engine
 from app import models
 from datetime import datetime
+import re
 
 # Pastikan tabel dibuat
 models.Base.metadata.create_all(bind=engine)
 
-
-# Ganti dengan Token Bot Telegram Anda
 BOT_TOKEN = "8944264752:AAF-0L4gj-OPyq-s6qhbpw5caHvBvKMgnjU"
-OLLAMA_URL = "http://localhost:11434/api/generate"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Database sederhana untuk harga BBM & Kapasitas Tangki (Bisa dipindah ke DB nanti)
-FUEL_PRICES = {
-    "pertalite": 10000,
-    "pertamax": 12950,
-    "solar": 6800,
-}
-VEHICLE_CAPACITY = {
-    "vario": 5.5, # Liter
-    "nmax": 7.1,
-}
-
 menu_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="⛽ Catat BBM"), KeyboardButton(text="🛠️ Catat Servis/Sparepart")],
+        [KeyboardButton(text="📝 Catat Pengeluaran Baru")],
         [KeyboardButton(text="🏍️ Garasi Saya"), KeyboardButton(text="🛢️ Status Oli")],
         [KeyboardButton(text="📊 Riwayat BBM"), KeyboardButton(text="📈 Laporan Bulanan")],
         [KeyboardButton(text="📉 Grafik Statistik"), KeyboardButton(text="ℹ️ Bantuan")]
@@ -42,50 +29,203 @@ menu_keyboard = ReplyKeyboardMarkup(
     persistent=True
 )
 
-# Fungsi untuk memanggil Hermes AI (Lokal)
-async def parse_text_with_ai(text: str):
-    prompt = f"""
-    Anda adalah asisten cerdas pencatat pengeluaran kendaraan.
-    Ekstrak data berikut menjadi format JSON dari teks ini: "{text}"
-    Kunci JSON:
-    - category (bisa: "bbm", "oli", "sparepart", "pajak")
-    - vehicle (nama kendaraan, huruf kecil semua, e.g. "vario")
-    - cost (angka total biaya)
-    - odometer (angka KM jika ada, null jika tidak ada)
-    - detail (misal: "pertamax", "oli motul", dsb, huruf kecil)
-    Hanya output JSON saja tanpa teks lain!
-    """
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        try:
-            response = await client.post(OLLAMA_URL, json={
-                "model": "hermes3:8b",
-                "prompt": prompt,
-                "stream": False,
-                "format": "json"
-            })
-            if response.status_code == 200:
-                return json.loads(response.json().get("response", "{}"))
-        except Exception as e:
-            print("Ollama Error:", e)
-    return None
+class RecordState(StatesGroup):
+    choosing_vehicle = State()
+    choosing_category = State()
+    typing_bbm = State()
+    typing_maintenance = State()
 
 @dp.message(Command("start"))
-async def send_welcome(message: types.Message):
+async def send_welcome(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer(
-        "Halo! Saya Bot Pencatat Kendaraan Anda. 🏍️🚗\n"
-        "Silakan pilih menu di bawah ini, atau ketik langsung pengeluaran Anda (contoh: 'isi vario pertamax 35rb di km 24500')!",
+        "Halo! Saya Bot Pencatat Kendaraan Anda yang baru dan SUPER CEPAT! ⚡\n\n"
+        "Pilih menu di bawah ini untuk berinteraksi dengan Dasbor Web Anda secara real-time.",
         reply_markup=menu_keyboard
     )
 
-# --- HANDLER TOMBOL MENU ---
+# --- ALUR CATAT PENGELUARAN (FSM) ---
 
-@dp.message(F.text == "⛽ Catat BBM")
-async def menu_catat_bbm(message: types.Message):
-    await message.answer("Silakan ketikkan data pengisian BBM Anda.\n\nContoh: *'Isi Vario Pertamax 35rb di KM 24500'*", parse_mode="Markdown")
+@dp.message(F.text == "📝 Catat Pengeluaran Baru")
+async def start_catat(message: types.Message, state: FSMContext):
+    db = SessionLocal()
+    try:
+        vehicles = db.query(models.Vehicle).all()
+        if not vehicles:
+            await message.answer("Garasi Anda kosong! Silakan tambah kendaraan dulu di Dasbor Web.")
+            return
+            
+        keyboard = []
+        for v in vehicles:
+            keyboard.append([InlineKeyboardButton(text=f"🏍️ {v.name.capitalize()}", callback_data=f"veh_{v.id}")])
+            
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        
+        await message.answer("Pilih kendaraan mana yang ingin dicatat:", reply_markup=reply_markup)
+        await state.set_state(RecordState.choosing_vehicle)
+    finally:
+        db.close()
 
-@dp.message(F.text == "🛠️ Catat Servis/Sparepart")
-async def menu_catat_servis(message: types.Message):
-    await message.answer("Silakan ketikkan data servis Anda.\n\nContoh: *'Ganti kampas rem nmax 150rb di bengkel ahass'*", parse_mode="Markdown")
+@dp.callback_query(RecordState.choosing_vehicle, F.data.startswith("veh_"))
+async def process_vehicle_choice(callback: CallbackQuery, state: FSMContext):
+    vehicle_id = int(callback.data.split("_")[1])
+    
+    db = SessionLocal()
+    try:
+        vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == vehicle_id).first()
+        await state.update_data(vehicle_id=vehicle.id, vehicle_name=vehicle.name)
+        
+        keyboard = [
+            [InlineKeyboardButton(text="⛽ Isi BBM", callback_data="cat_bbm")],
+            [InlineKeyboardButton(text="🛠️ Servis/Sparepart", callback_data="cat_servis")],
+            [InlineKeyboardButton(text="🛢️ Ganti Oli", callback_data="cat_oli")],
+            [InlineKeyboardButton(text="🧾 Pajak", callback_data="cat_pajak")]
+        ]
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        
+        await callback.message.edit_text(
+            f"Kendaraan terpilih: **{vehicle.name.upper()}**\nKategori pengeluaran apa?",
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
+        await state.set_state(RecordState.choosing_category)
+    finally:
+        db.close()
+
+@dp.callback_query(RecordState.choosing_category, F.data.startswith("cat_"))
+async def process_category_choice(callback: CallbackQuery, state: FSMContext):
+    category = callback.data.split("_")[1]
+    await state.update_data(category=category)
+    
+    data = await state.get_data()
+    v_name = data.get('vehicle_name').upper()
+    
+    if category == "bbm":
+        await callback.message.edit_text(
+            f"⛽ **BBM untuk {v_name}**\n\n"
+            f"Ketik biaya, Odometer (KM), dan Jenis BBM.\n"
+            f"Contoh: *30000 km 12800 pertalite*",
+            parse_mode="Markdown"
+        )
+        await state.set_state(RecordState.typing_bbm)
+    else:
+        nama_kategori = "Servis/Sparepart" if category == "servis" else ("Ganti Oli" if category == "oli" else "Pajak")
+        await callback.message.edit_text(
+            f"🛠️ **{nama_kategori} untuk {v_name}**\n\n"
+            f"Ketik biaya, Odometer (KM), dan Keterangan.\n"
+            f"Contoh: *150000 km 12800 ganti busi dan kampas*",
+            parse_mode="Markdown"
+        )
+        await state.set_state(RecordState.typing_maintenance)
+
+@dp.message(RecordState.typing_bbm)
+async def process_bbm_input(message: types.Message, state: FSMContext):
+    text = message.text.lower()
+    data = await state.get_data()
+    vehicle_id = data.get('vehicle_id')
+    v_name = data.get('vehicle_name').upper()
+    
+    # Ekstrak Biaya
+    cost_match = re.search(r'(\d+)(?:\s*(ribu|rb|k))?', text)
+    if not cost_match:
+        await message.answer("⚠️ Format salah! Saya tidak menemukan angka biaya. Coba lagi (cth: 30000 km 12000 pertalite):")
+        return
+        
+    cost_val = int(cost_match.group(1))
+    if cost_match.group(2) in ['ribu', 'rb', 'k'] or cost_val < 1000:
+        cost = cost_val * 1000
+    else:
+        cost = cost_val
+        
+    # Ekstrak KM
+    km_match = re.search(r'(?:km\s*|kilometer\s*)(\d+)|(\d+)\s*km', text)
+    odometer = int(km_match.group(1) or km_match.group(2)) if km_match else 0
+    
+    # Ekstrak Jenis
+    jenis = "BBM"
+    for j in ['pertalite', 'pertamax', 'solar', 'shell', 'bp', 'vivo']:
+        if j in text:
+            jenis = j.capitalize()
+            break
+            
+    # Simpan ke DB
+    db = SessionLocal()
+    try:
+        new_log = models.FuelLog(
+            vehicle_id=vehicle_id,
+            date=datetime.now().date(),
+            odometer=odometer,
+            fuel_type=jenis,
+            volume_liters=0, # Bisa dihitung nanti
+            cost=cost,
+            is_full=True
+        )
+        db.add(new_log)
+        db.commit()
+    except Exception as e:
+        print(e)
+    finally:
+        db.close()
+        
+    await message.answer(f"✅ Tersimpan Kilat ⚡\n\nKendaraan: {v_name}\nBBM: {jenis}\nBiaya: Rp {cost:,}\nOdo: {odometer} KM")
+    await state.clear()
+
+@dp.message(RecordState.typing_maintenance)
+async def process_maintenance_input(message: types.Message, state: FSMContext):
+    text = message.text.lower()
+    data = await state.get_data()
+    vehicle_id = data.get('vehicle_id')
+    v_name = data.get('vehicle_name').upper()
+    category = data.get('category')
+    
+    # Ekstrak Biaya
+    cost_match = re.search(r'(\d+)(?:\s*(ribu|rb|k|juta|jt))?', text)
+    if not cost_match:
+        await message.answer("⚠️ Format salah! Saya tidak menemukan angka biaya. Coba lagi:")
+        return
+        
+    cost_val = int(cost_match.group(1))
+    multiplier = cost_match.group(2)
+    if multiplier in ['ribu', 'rb', 'k'] or (cost_val < 1000 and multiplier is None):
+        cost = cost_val * 1000
+    elif multiplier in ['juta', 'jt']:
+        cost = cost_val * 1000000
+    else:
+        cost = cost_val
+        
+    # Ekstrak KM
+    km_match = re.search(r'(?:km\s*|kilometer\s*)(\d+)|(\d+)\s*km', text)
+    odometer = int(km_match.group(1) or km_match.group(2)) if km_match else 0
+    
+    # Hapus biaya dan km dari keterangan
+    keterangan = re.sub(r'\b(\d+)(?:\s*(ribu|rb|k|juta|jt))?\b', '', text)
+    keterangan = re.sub(r'(?:km\s*|kilometer\s*)(\d+)|(\d+)\s*km', '', keterangan).strip()
+    if len(keterangan) < 2:
+        keterangan = "Lainnya"
+        
+    # Simpan ke DB
+    db = SessionLocal()
+    try:
+        new_log = models.MaintenanceLog(
+            vehicle_id=vehicle_id,
+            date=datetime.now().date(),
+            category=category.capitalize(),
+            description=keterangan.capitalize(),
+            odometer=odometer,
+            cost=cost
+        )
+        db.add(new_log)
+        db.commit()
+    except Exception as e:
+        print(e)
+    finally:
+        db.close()
+        
+    await message.answer(f"✅ Tersimpan Kilat ⚡\n\nKendaraan: {v_name}\nKategori: {category.capitalize()}\nBiaya: Rp {cost:,}\nKeterangan: {keterangan.capitalize()}")
+    await state.clear()
+
+
+# --- HANDLER MENU (NON-FSM) ---
 
 @dp.message(F.text == "🏍️ Garasi Saya")
 async def menu_garasi(message: types.Message):
@@ -93,7 +233,7 @@ async def menu_garasi(message: types.Message):
     try:
         vehicles = db.query(models.Vehicle).all()
         if not vehicles:
-            await message.answer("Garasi Anda masih kosong. 🏍️\nKetik pengisian BBM atau klik 'Tambah Kendaraan' di Web.")
+            await message.answer("Garasi Anda masih kosong. 🏍️\nSilakan 'Tambah Kendaraan' di Web.")
             return
             
         teks = "🏍️ **GARASI SAYA** 🚗\n\n"
@@ -108,7 +248,6 @@ async def menu_garasi(message: types.Message):
 async def menu_status_oli(message: types.Message):
     db = SessionLocal()
     try:
-        # Ambil log ganti oli terakhir
         last_oli = db.query(models.MaintenanceLog).filter(models.MaintenanceLog.category.ilike('%oli%')).order_by(models.MaintenanceLog.date.desc()).first()
         if not last_oli:
             await message.answer("Belum ada catatan ganti oli di sistem. 🛢️")
@@ -121,10 +260,7 @@ async def menu_status_oli(message: types.Message):
         teks += f"🏍️ Kendaraan: {v_name.capitalize()}\n"
         teks += f"📅 Tanggal: {last_oli.date}\n"
         teks += f"📍 Odometer: {last_oli.odometer:,} KM\n"
-        teks += f"📝 Keterangan: {last_oli.description.capitalize()}\n"
         teks += f"💰 Biaya: Rp {last_oli.cost:,}\n\n"
-        teks += "*Catat terus pengeluaran Anda agar prediksi ganti oli berikutnya lebih akurat!*"
-        
         await message.answer(teks, parse_mode="Markdown")
     finally:
         db.close()
@@ -135,7 +271,7 @@ async def menu_riwayat_bbm(message: types.Message):
     try:
         logs = db.query(models.FuelLog).order_by(models.FuelLog.date.desc()).limit(5).all()
         if not logs:
-            await message.answer("Belum ada riwayat pengisian BBM. ⛽")
+            await message.answer("Belum ada riwayat BBM. ⛽")
             return
             
         teks = "📊 **5 RIWAYAT BBM TERAKHIR**\n\n"
@@ -143,10 +279,9 @@ async def menu_riwayat_bbm(message: types.Message):
             vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == log.vehicle_id).first()
             v_name = vehicle.name if vehicle else "?"
             teks += f"📅 {log.date} | 🏍️ {v_name.capitalize()}\n"
-            teks += f"⛽ {log.volume_liters}L {log.fuel_type.capitalize()} (Rp{log.cost:,})\n"
+            teks += f"⛽ {log.fuel_type.capitalize()} (Rp{log.cost:,})\n"
             teks += f"📍 KM {log.odometer:,}\n\n"
             
-        teks += "*(Cek Dasbor Web untuk melihat riwayat selengkapnya!)*"
         await message.answer(teks, parse_mode="Markdown")
     finally:
         db.close()
@@ -183,113 +318,21 @@ async def menu_laporan(message: types.Message):
 
 @dp.message(F.text == "📉 Grafik Statistik")
 async def menu_grafik(message: types.Message):
-    await message.answer("Untuk melihat Grafik Interaktif Chart.js, silakan buka Dasbor Web Anda! 📊\n👉 http://100.101.160.117:8000")
+    await message.answer("Grafik Interaktif Chart.js ada di Dasbor Web Anda! 📊\n👉 http://100.101.160.117:8000")
 
 @dp.message(F.text == "ℹ️ Bantuan")
 async def menu_bantuan(message: types.Message):
-    await message.answer("Ketikkan saja pengeluaran Anda seperti sedang chatting biasa! AI akan mengekstraknya otomatis. 🤖\n\nContoh:\n- 'Isi bensin pertamax 50rb di vario KM 24500'\n- 'Ganti oli motul nmax harganya 150 ribu'\n- 'Bayar pajak tahunan mobil avanza 2 juta'")
-
-# --- HANDLER TEKS BEBAS (AI) ---
+    await message.answer("Klik '📝 Catat Pengeluaran Baru', lalu ikuti tombol petunjuknya! 🚀")
 
 @dp.message()
-async def handle_message(message: types.Message):
-    await message.answer("Memproses data dengan AI... 🤖")
-    
-    parsed_data = await parse_text_with_ai(message.text)
-    if not parsed_data:
-        await message.answer("Maaf, format tidak dipahami atau AI sedang offline. Pastikan Ollama menyala di VPS Anda.")
-        return
-
-    category = parsed_data.get('category')
-    vehicle = parsed_data.get('vehicle', '').lower()
-    cost = parsed_data.get('cost', 0)
-    odometer = parsed_data.get('odometer', 0)
-    detail = parsed_data.get('detail', '').lower()
-
-    # Logika Validasi Kapasitas Tangki (Anti Meluber)
-    if category == "bbm" and vehicle in VEHICLE_CAPACITY:
-        # Cari jenis bensin di detail
-        fuel_price = 0
-        for f_name, f_price in FUEL_PRICES.items():
-            if f_name in detail:
-                fuel_price = f_price
-                break
-        
-        if fuel_price > 0:
-            estimated_liters = cost / fuel_price
-            max_capacity = VEHICLE_CAPACITY[vehicle]
-            
-            if estimated_liters > max_capacity:
-                await message.answer(
-                    f"⚠️ **Peringatan Logika!**\n"
-                    f"Maaf, Anda memasukkan nilai yang salah. Anda mengisi Rp {cost:,} untuk {detail.capitalize()}.\n"
-                    f"Dengan harga Rp {fuel_price:,}/liter, itu setara dengan **{estimated_liters:.1f} Liter**.\n\n"
-                    f"Sedangkan kapasitas tangki standar {vehicle.capitalize()} hanya **{max_capacity} Liter**! Tangki pasti meluber 💦.\n\n"
-                    f"Silakan perbaiki (Ketik: 'Revisi, harga sebenarnya...')!"
-                )
-                return
-    # --- SIMPAN KE DATABASE SQLITE ---
-    db = SessionLocal()
-    try:
-        # Cari atau buat kendaraan (jika belum ada di database)
-        db_vehicle = db.query(models.Vehicle).filter(models.Vehicle.name == vehicle).first()
-        if not db_vehicle:
-            db_vehicle = models.Vehicle(name=vehicle)
-            db.add(db_vehicle)
-            db.commit()
-            db.refresh(db_vehicle)
-            
-        today = datetime.now().date()
-        
-        if category == "bbm":
-            volume = 0
-            # Pastikan variabel fuel_price ada (bisa saja belum didefinisikan jika tangki tidak dicek)
-            f_price = 0
-            for f_name, p in FUEL_PRICES.items():
-                if f_name in detail:
-                    f_price = p
-                    break
-            
-            if f_price > 0:
-                volume = round(cost / f_price, 2)
-                
-            new_log = models.FuelLog(
-                vehicle_id=db_vehicle.id,
-                date=today,
-                odometer=int(odometer) if odometer else 0,
-                fuel_type=detail,
-                volume_liters=volume,
-                cost=cost,
-                is_full=True
-            )
-            db.add(new_log)
-        else:
-            new_log = models.MaintenanceLog(
-                vehicle_id=db_vehicle.id,
-                date=today,
-                category=category.capitalize(),
-                description=detail,
-                odometer=int(odometer) if odometer else 0,
-                cost=cost
-            )
-            db.add(new_log)
-            
-        db.commit()
-    except Exception as e:
-        print("DB Error:", e)
-    finally:
-        db.close()
-        
-    await message.answer(f"✅ Data berhasil dicatat & disinkronkan ke Dasbor Web! 🌐\n\nKategori: {category.capitalize()}\nKendaraan: {vehicle.capitalize()}\nBiaya: Rp{cost:,}\n\n(Cek Grafik Dasbor Anda!)")
-
+async def fallback(message: types.Message):
+    await message.answer("Silakan gunakan tombol menu di bawah 👇")
 
 from bot.scheduler import setup_scheduler
 
 async def start_bot():
-    print("Bot Telegram berjalan...")
-    # Jalankan Scheduler (Alarm Pagi & Prediksi)
+    print("Bot Telegram berjalan (Mode Super Cepat FSM)...")
     setup_scheduler(bot)
-    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
