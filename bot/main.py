@@ -47,7 +47,7 @@ async def parse_text_with_ai(text: str):
     - detail (misal: "pertamax", "oli motul", dsb, huruf kecil)
     Hanya output JSON saja tanpa teks lain!
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=120.0) as client:
         try:
             response = await client.post(OLLAMA_URL, json={
                 "model": "hermes3:8b",
